@@ -35,6 +35,8 @@ def main(request: Request) -> Tuple[str, int]:
         bucket = config['bucket']
         files = config['files']
         
+        log_error('debug', f"Files to process: {files}")
+        
         # Download and read files
         dataframes = {}
         for file_name in files:
@@ -42,6 +44,8 @@ def main(request: Request) -> Tuple[str, int]:
             if local_file:
                 table_name = file_name.replace('.xlsx', '')
                 df = pd.read_excel(local_file, engine='openpyxl')
+                
+                log_error('debug', f"Columns in {table_name}: {list(df.columns)}")
                 
                 # Validate Excel file
                 is_valid, errors = validate_excel_file(df, table_name)
@@ -52,21 +56,29 @@ def main(request: Request) -> Tuple[str, int]:
                 # Rename columns for relationships
                 if table_name == 'sales':
                     df = df.rename(columns={'customer': 'customer_id', 'product': 'product_id'})
+                    log_error('debug', f"After rename, columns in sales: {list(df.columns)}")
                 elif table_name == 'support_tickets':
                     df = df.rename(columns={'customer': 'customer_id', 'product': 'product_id'})
+                    log_error('debug', f"After rename, columns in support_tickets: {list(df.columns)}")
                     
                 dataframes[table_name] = df
                 os.remove(local_file)
             else:
+                log_error('debug', f"Failed to download {file_name}")
                 continue
 
         if not dataframes:
             log_error('all', 'No files successfully downloaded and validated')
             return json.dumps({'status': 'error', 'message': 'No files processed'}), 200
 
+        log_error('debug', f"Available tables after download: {list(dataframes.keys())}")
+
         # Get reference data for relationship validation
         customers = dataframes.get('customers', pd.DataFrame())
         products = dataframes.get('products', pd.DataFrame())
+
+        log_error('debug', f"Customers columns: {list(customers.columns) if not customers.empty else 'empty'}")
+        log_error('debug', f"Products columns: {list(products.columns) if not products.empty else 'empty'}")
 
         # Validate relationships and prepare data for loading
         valid_dfs = {}
@@ -80,6 +92,7 @@ def main(request: Request) -> Tuple[str, int]:
         # Then handle tables with relationships (sales and support_tickets)
         for table in ['sales', 'support_tickets']:
             if table not in dataframes:
+                log_error('debug', f"Table {table} not found in dataframes")
                 continue
                 
             # Only validate if we have both customers and products data
@@ -87,6 +100,9 @@ def main(request: Request) -> Tuple[str, int]:
                 log_error(table, "Cannot validate relationships: missing customers or products data")
                 continue
                 
+            log_error('debug', f"Validating relationships for {table}")
+            log_error('debug', f"Columns in {table} before validation: {list(dataframes[table].columns)}")
+            
             valid_df, invalid_df = validate_relationships(
                 dataframes[table], table, customers, products
             )
@@ -140,6 +156,12 @@ def main(request: Request) -> Tuple[str, int]:
     except Exception as e:
         error_msg = f'Pipeline failed: {str(e)}'
         log_error('main', error_msg)
+        # Add more context to the error message
+        if 'not in index' in str(e):
+            error_msg += f"\nAvailable tables: {list(dataframes.keys()) if 'dataframes' in locals() else 'No tables loaded'}"
+            if 'dataframes' in locals():
+                for table, df in dataframes.items():
+                    error_msg += f"\nColumns in {table}: {list(df.columns)}"
         return json.dumps({
             'status': 'error',
             'message': error_msg
