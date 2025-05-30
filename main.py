@@ -64,14 +64,27 @@ def main(request: Request) -> Tuple[str, int]:
             log_error('all', 'No files successfully downloaded and validated')
             return json.dumps({'status': 'error', 'message': 'No files processed'}), 200
 
-        # Validate relationships
+        # Get reference data for relationship validation
         customers = dataframes.get('customers', pd.DataFrame())
         products = dataframes.get('products', pd.DataFrame())
+
+        # Validate relationships and prepare data for loading
         valid_dfs = {}
         invalid_dfs = {}
 
+        # First handle reference tables (customers and products)
+        for table in ['customers', 'products']:
+            if table in dataframes:
+                valid_dfs[table] = dataframes[table]  # These don't need relationship validation
+
+        # Then handle tables with relationships (sales and support_tickets)
         for table in ['sales', 'support_tickets']:
             if table not in dataframes:
+                continue
+                
+            # Only validate if we have both customers and products data
+            if customers.empty or products.empty:
+                log_error(table, "Cannot validate relationships: missing customers or products data")
                 continue
                 
             valid_df, invalid_df = validate_relationships(
@@ -80,11 +93,11 @@ def main(request: Request) -> Tuple[str, int]:
             valid_dfs[table] = valid_df
             invalid_dfs[table] = invalid_df
 
-        # Load data
+        # Load all validated data to BigQuery
         for table in ['customers', 'products']:
-            if table in dataframes:
+            if table in valid_dfs:
                 load_to_bigquery(
-                    dataframes[table], 
+                    valid_dfs[table], 
                     f'raw_{table}', 
                     SCHEMAS[table], 
                     'WRITE_TRUNCATE',
