@@ -31,18 +31,16 @@ def get_config():
     Returns:
         dict: Configuration dictionary with dataset, bucket, and files
     """
-    project_id = get_secret("bixlabs", "project_id")
+    project_id = get_secret("bixlabs-challenge", "project_id")
     if not project_id:
         raise ValueError("Could not retrieve project_id from Secret Manager")
         
-    dataset = get_secret("bixlabs", "dataset") or "challenge"
-    bucket = get_secret("bixlabs", "bucket") or "bixlabs-challenge-bucket"
-    files = get_secret("bixlabs", "files")
+    dataset = get_secret("bixlabs-challenge", "dataset")
+    bucket = get_secret("bixlabs-challenge", "bucket")
+    files = get_secret("bixlabs-challenge", "files")
     
     if files:
         files = files.split(",")
-    else:
-        files = ["sales.xlsx", "products.xlsx", "customers.xlsx", "support_tickets.xlsx"]
         
     return {
         "project_id": project_id,
