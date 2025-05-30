@@ -1,5 +1,6 @@
 """Configuration management for the ingestion pipeline."""
 
+import os
 from google.cloud import secretmanager
 from typing import Optional
 
@@ -31,13 +32,15 @@ def get_config():
     Returns:
         dict: Configuration dictionary with dataset, bucket, and files
     """
-    project_id = get_secret("bixlabs-challenge", "project_id")
+    # Get project_id from environment variable
+    project_id = os.environ.get('PROJECT_ID')
     if not project_id:
-        raise ValueError("Could not retrieve project_id from Secret Manager")
+        raise ValueError("PROJECT_ID environment variable not set")
         
-    dataset = get_secret("bixlabs-challenge", "dataset")
-    bucket = get_secret("bixlabs-challenge", "bucket")
-    files = get_secret("bixlabs-challenge", "files")
+    # Get other configuration from Secret Manager
+    dataset = get_secret(project_id, "dataset") or "challenge"
+    bucket = get_secret(project_id, "bucket") or "bixlabs-challenge-bucket"
+    files = get_secret(project_id, "files")
     
     if files:
         files = files.split(",")
