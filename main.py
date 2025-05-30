@@ -149,8 +149,9 @@ def main(request: Request) -> Tuple[str, int]:
             invalid_dfs[table] = invalid_df
 
         # Load all validated data to BigQuery
-        for table in ['customers', 'products']:
+        for table in ['customers', 'products', 'support_tickets']:
             if table in valid_dfs:
+                add_to_log(f"Loading {len(valid_dfs[table])} records to raw_{table} (full load)")
                 load_to_bigquery(
                     valid_dfs[table], 
                     f'raw_{table}', 
@@ -160,35 +161,29 @@ def main(request: Request) -> Tuple[str, int]:
                 )
                 update_metadata(f'raw_{table}', dataset=dataset)
 
-        for table in ['sales', 'support_tickets']:
-            if table not in valid_dfs:
-                continue
-                
-            valid_df = valid_dfs[table]
-            invalid_df = invalid_dfs.get(table, pd.DataFrame())
+        # Handle sales separately for incremental loading
+        if 'sales' in valid_dfs:
+            valid_df = valid_dfs['sales']
+            invalid_df = invalid_dfs.get('sales', pd.DataFrame())
 
             if not valid_df.empty:
-                # Get max_id for incremental loading
-                max_id = get_max_id(f'raw_{table}', f'{table[:-1]}_id', dataset)  # sale_id or ticket_id
-                add_to_log(f"Current max_id for {table}: {max_id}")
+                max_id = get_max_id('raw_sales', 'sale_id', dataset)
+                add_to_log(f"Current max_id for sales: {max_id}")
                 
-                # Filter for new records only
-                id_column = f'{table[:-1]}_id'  # sale_id or ticket_id
-                new_records = valid_df[valid_df[id_column] > max_id]
-                
+                new_records = valid_df[valid_df['sale_id'] > max_id]
                 if not new_records.empty:
-                    add_to_log(f"Loading {len(new_records)} new records to raw_{table}")
-                    load_to_bigquery(new_records, f'raw_{table}', SCHEMAS[table], dataset=dataset)
-                    new_max_id = int(new_records[id_column].max())
-                    update_metadata(f'raw_{table}', new_max_id, dataset)
+                    add_to_log(f"Loading {len(new_records)} new sales records")
+                    load_to_bigquery(new_records, 'raw_sales', SCHEMAS['sales'], dataset=dataset)
+                    new_max_id = int(new_records['sale_id'].max())
+                    update_metadata('raw_sales', new_max_id, dataset)
                 else:
-                    add_to_log(f"No new records to load for {table}")
+                    add_to_log("No new sales records to load")
 
             if not invalid_df.empty:
                 load_to_bigquery(
                     invalid_df, 
-                    f'invalid_{table}', 
-                    SCHEMAS[f'invalid_{table}'],
+                    'invalid_sales', 
+                    SCHEMAS['invalid_sales'],
                     dataset=dataset
                 )
 
