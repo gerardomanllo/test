@@ -12,7 +12,7 @@ from utils import (
 )
 from schemas import SCHEMAS
 from validation import validate_excel_file, validate_relationships
-from secrets import get_config
+from config import get_config
 
 def main(request: Request) -> Tuple[str, int]:
     """

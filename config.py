@@ -1,4 +1,4 @@
-"""Secret Manager integration for configuration."""
+"""Configuration management for the ingestion pipeline."""
 
 from google.cloud import secretmanager
 from typing import Optional
