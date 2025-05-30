@@ -2,7 +2,9 @@
 
 import pandas as pd
 import os
-from typing import Dict, Optional
+import json
+from typing import Dict, Optional, Tuple, Any
+from flask import Request
 
 from utils import (
     bq_client, log_error, download_file, load_to_bigquery,
@@ -12,8 +14,20 @@ from schemas import SCHEMAS
 from validation import validate_excel_file, validate_relationships
 from secrets import get_config
 
-def main(request=None):
-    """Main function for Cloud Function."""
+def main(request: Request) -> Tuple[str, int]:
+    """
+    Main function for Cloud Function.
+    
+    Args:
+        request: Flask request object
+        
+    Returns:
+        Tuple of (response message, HTTP status code)
+    """
+    # Verify request method
+    if request.method != 'POST':
+        return 'Method not allowed', 405
+        
     try:
         # Get configuration from Secret Manager
         config = get_config()
@@ -48,7 +62,7 @@ def main(request=None):
 
         if not dataframes:
             log_error('all', 'No files successfully downloaded and validated')
-            return 'No files processed', 200
+            return json.dumps({'status': 'error', 'message': 'No files processed'}), 200
 
         # Validate relationships
         customers = dataframes.get('customers', pd.DataFrame())
@@ -104,11 +118,27 @@ def main(request=None):
                     dataset=dataset
                 )
 
-        return 'Ingestion complete', 200
+        return json.dumps({
+            'status': 'success',
+            'message': 'Ingestion complete',
+            'tables_processed': list(dataframes.keys())
+        }), 200
 
     except Exception as e:
-        log_error('main', f'Pipeline failed: {str(e)}')
-        return f'Error: {str(e)}', 500
+        error_msg = f'Pipeline failed: {str(e)}'
+        log_error('main', error_msg)
+        return json.dumps({
+            'status': 'error',
+            'message': error_msg
+        }), 500
 
 if __name__ == '__main__':
-    main()
+    # This is for local testing only
+    from flask import Flask, request
+    app = Flask(__name__)
+    
+    @app.route('/', methods=['POST'])
+    def handle_request():
+        return main(request)
+        
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))

@@ -11,7 +11,7 @@ steps:
       - '${_FUNCTION_NAME}'  # Function name - set this in your Cloud Build trigger
       - '--runtime=python310'  # Python 3.10 runtime
       - '--trigger-http'  # HTTP trigger
-      - '--entry-point=main'  # The function to execute
+      - '--entry-point=main'  # The function to execute (from main.py)
       - '--source=.'  # Use current directory as source
       - '--memory=512MB'  # Memory allocation
       - '--timeout=540s'  # Maximum execution time (9 minutes)
@@ -19,6 +19,8 @@ steps:
       - '--service-account=${_SERVICE_ACCOUNT}'  # Service account email
       - '--set-env-vars=PROJECT_ID=${PROJECT_ID}'  # Pass project ID as environment variable
       - '--allow-unauthenticated'  # Allow public access (remove if you need authentication)
+      - '--min-instances=0'  # Start with 0 instances
+      - '--max-instances=1'  # Maximum 1 instance at a time
 
 # These variables should be set in your Cloud Build trigger
 substitutions:
