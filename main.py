@@ -57,19 +57,19 @@ def main(request: Request) -> Tuple[str, int]:
                 
                 add_to_log(f"Columns in {table_name}: {list(df.columns)}")
                 
-                # Validate Excel file
-                is_valid, errors = validate_excel_file(df, table_name)
-                if not is_valid:
-                    log_error(table_name, f"Validation errors: {'; '.join(errors)}")
-                    continue
-                    
-                # Rename columns for relationships
+                # Rename columns for relationships BEFORE validation
                 if table_name == 'sales':
                     df = df.rename(columns={'customer': 'customer_id', 'product': 'product_id'})
                     add_to_log(f"After rename, columns in sales: {list(df.columns)}")
                 elif table_name == 'support_tickets':
                     df = df.rename(columns={'customer': 'customer_id', 'product': 'product_id'})
                     add_to_log(f"After rename, columns in support_tickets: {list(df.columns)}")
+                
+                # Validate Excel file after renaming
+                is_valid, errors = validate_excel_file(df, table_name)
+                if not is_valid:
+                    log_error(table_name, f"Validation errors: {'; '.join(errors)}")
+                    continue
                     
                 dataframes[table_name] = df
                 os.remove(local_file)
