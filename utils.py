@@ -126,7 +126,8 @@ def update_metadata(
     dataset: str = 'raw_data'
 ) -> None:
     """
-    Update ingestion metadata for a table.
+    Update ingestion metadata in the ingestion_metadata table.
+    Creates a new row if table doesn't exist, updates existing row if it does.
     
     Args:
         table_name: Name of the table
@@ -134,30 +135,37 @@ def update_metadata(
         dataset: Dataset containing the table
     """
     try:
-        table_id = f"{bq_client.project}.{dataset}.{table_name}"
-        table = bq_client.get_table(table_id)
+        metadata_table_id = f"{bq_client.project}.{dataset}.ingestion_metadata"
         
-        metadata = {
-            'last_updated': pd.Timestamp.now().isoformat(),
-            'row_count': table.num_rows
-        }
-        
-        if max_id is not None:
-            metadata['max_id'] = max_id
-            
-        table.description = str(metadata)
-        bq_client.update_table(table, ['description'])
+        # Insert or update metadata using MERGE
+        query = f"""
+        MERGE `{metadata_table_id}` T
+        USING (SELECT 
+            '{table_name}' as table_name,
+            {max_id if max_id is not None else 'NULL'} as max_id,
+            CURRENT_TIMESTAMP() as last_ingestion_timestamp
+        ) S
+        ON T.table_name = S.table_name
+        WHEN MATCHED THEN
+            UPDATE SET 
+                max_id = S.max_id,
+                last_ingestion_timestamp = S.last_ingestion_timestamp
+        WHEN NOT MATCHED THEN
+            INSERT (table_name, max_id, last_ingestion_timestamp)
+            VALUES (S.table_name, S.max_id, S.last_ingestion_timestamp)
+        """
+        bq_client.query(query).result()
         
     except Exception as e:
         log_error('metadata', f"Failed to update metadata for {table_name}: {str(e)}")
 
 def get_max_id(table_name: str, id_column: str, dataset: str = 'raw_data') -> int:
     """
-    Get the maximum ID from a table.
+    Get the maximum ID from the ingestion_metadata table.
     
     Args:
         table_name: Name of the table
-        id_column: Name of the ID column
+        id_column: Name of the ID column (not used, kept for compatibility)
         dataset: Dataset containing the table
         
     Returns:
@@ -165,13 +173,14 @@ def get_max_id(table_name: str, id_column: str, dataset: str = 'raw_data') -> in
     """
     try:
         query = f"""
-        SELECT MAX({id_column}) as max_id
-        FROM `{bq_client.project}.{dataset}.{table_name}`
+        SELECT max_id
+        FROM `{bq_client.project}.{dataset}.ingestion_metadata`
+        WHERE table_name = '{table_name}'
         """
         query_job = bq_client.query(query)
         result = next(query_job.result())
         return result.max_id or 0
         
     except Exception as e:
-        log_error('query', f"Failed to get max_id from {table_name}: {str(e)}")
+        log_error('query', f"Failed to get max_id from metadata for {table_name}: {str(e)}")
         return 0 
