@@ -106,13 +106,38 @@ def update_metadata(table_name: str, max_id: Optional[int] = None, dataset: str 
     bq_client.insert_rows(table, [row])
 
 def get_max_id(table_name: str, id_column: str, dataset: str = 'challenge') -> int:
-    """Get maximum ID for incremental processing."""
-    query = f"""
-    SELECT MAX({id_column}) as max_id
-    FROM `{bq_client.project}.{dataset}.ingestion_metadata`
-    WHERE table_name = '{table_name}'
     """
-    result = bq_client.query(query).result()
-    for row in result:
-        return row.max_id
-    return 0 
+    Get maximum ID for incremental processing.
+    
+    Args:
+        table_name: Name of the table to get max ID for
+        id_column: Name of the ID column in the source table
+        dataset: BigQuery dataset name
+        
+    Returns:
+        Maximum ID found, or 0 if no records exist
+    """
+    try:
+        # First check if we have any metadata for this table
+        query = f"""
+        SELECT MAX(max_id) as max_id
+        FROM `{bq_client.project}.{dataset}.ingestion_metadata`
+        WHERE table_name = '{table_name}'
+        """
+        add_to_log(f"Querying max_id for {table_name}")
+        result = bq_client.query(query).result()
+        
+        # Get the max_id from the result
+        for row in result:
+            if row.max_id is not None:
+                add_to_log(f"Found max_id {row.max_id} for {table_name}")
+                return row.max_id
+                
+        # If no metadata exists, return 0
+        add_to_log(f"No existing max_id found for {table_name}, using 0")
+        return 0
+        
+    except Exception as e:
+        add_to_log(f"Error getting max_id for {table_name}: {str(e)}", 'ERROR')
+        # On error, return 0 to process all records
+        return 0 
