@@ -2,7 +2,7 @@
 
 import pandas as pd
 from typing import Dict, List, Tuple
-from .schemas import REQUIRED_COLUMNS
+from schemas import REQUIRED_COLUMNS
 
 def validate_excel_file(df: pd.DataFrame, table_name: str) -> Tuple[bool, List[str]]:
     """
