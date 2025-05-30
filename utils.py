@@ -27,12 +27,33 @@ def log_error(table_name: str, error_message: str) -> None:
 def download_file(bucket: str, file_name: str, local_path: str = '/tmp') -> Optional[str]:
     """Download file from Cloud Storage."""
     try:
-        bucket = storage_client.bucket(bucket)
-        blob = bucket.blob(file_name)
+        log.log_text(f'Attempting to download {file_name} from bucket {bucket}', severity='INFO')
+        
+        # Check if bucket exists
+        bucket_obj = storage_client.bucket(bucket)
+        if not bucket_obj.exists():
+            log_error(file_name, f'Bucket {bucket} does not exist')
+            return None
+            
+        # Check if file exists in bucket
+        blob = bucket_obj.blob(file_name)
+        if not blob.exists():
+            log_error(file_name, f'File {file_name} does not exist in bucket {bucket}')
+            return None
+            
+        # Download file
         local_file = os.path.join(local_path, file_name)
+        log.log_text(f'Downloading {file_name} to {local_file}', severity='INFO')
         blob.download_to_filename(local_file)
-        log.log_text(f'Downloaded {file_name}', severity='INFO')
+        
+        # Verify file was downloaded
+        if not os.path.exists(local_file):
+            log_error(file_name, f'File download failed: {local_file} does not exist')
+            return None
+            
+        log.log_text(f'Successfully downloaded {file_name}', severity='INFO')
         return local_file
+        
     except Exception as e:
         log_error(file_name, f'Failed to download: {str(e)}')
         return None
