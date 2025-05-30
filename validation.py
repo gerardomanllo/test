@@ -3,10 +3,11 @@
 import pandas as pd
 from typing import Dict, List, Tuple
 from schemas import REQUIRED_COLUMNS
+from utils import add_to_log
 
 def validate_excel_file(df: pd.DataFrame, table_name: str) -> Tuple[bool, List[str]]:
     """
-    Validate an Excel file against required columns and data types.
+    Validate Excel file against schema requirements.
     
     Args:
         df: DataFrame to validate
@@ -17,80 +18,96 @@ def validate_excel_file(df: pd.DataFrame, table_name: str) -> Tuple[bool, List[s
     """
     errors = []
     
-    # Check required columns
-    if table_name not in REQUIRED_COLUMNS:
-        return False, [f"Unknown table name: {table_name}"]
-        
-    required_cols = REQUIRED_COLUMNS[table_name]
-    missing_cols = [col for col in required_cols if col not in df.columns]
-    if missing_cols:
-        errors.append(f"Missing required columns: {', '.join(missing_cols)}")
+    # Convert price_usd to float for products table
+    if table_name == 'products' and 'price_usd' in df.columns:
+        try:
+            df['price_usd'] = pd.to_numeric(df['price_usd'], errors='coerce')
+            # Log any rows where conversion failed
+            null_prices = df['price_usd'].isnull().sum()
+            if null_prices > 0:
+                add_to_log(f"Warning: {null_prices} rows in products have invalid price_usd values", 'WARNING')
+        except Exception as e:
+            errors.append(f"Failed to convert price_usd to float: {str(e)}")
+            return False, errors
     
-    # Check for empty DataFrame
-    if df.empty:
-        errors.append("DataFrame is empty")
+    # Validate required columns
+    required_columns = {
+        'customers': ['customer_id', 'name', 'country', 'industry', 'registration_date'],
+        'products': ['product_id', 'description', 'category', 'price_usd', 'active'],
+        'sales': ['sale_id', 'customer_id', 'product_id', 'sale_date', 'quantity', 'channel', 'payment_method'],
+        'support_tickets': ['ticket_id', 'customer_id', 'product_id', 'status', 'priority', 'opened_at', 'handled_by']
+    }
+    
+    if table_name not in required_columns:
+        errors.append(f"Unknown table name: {table_name}")
+        return False, errors
         
-    # Check for null values in required columns
-    if not df.empty:
-        null_cols = df[required_cols].columns[df[required_cols].isnull().any()].tolist()
-        if null_cols:
-            errors.append(f"Null values found in required columns: {', '.join(null_cols)}")
-            
-    # Check data types for specific columns
-    if table_name == 'sales':
-        if 'sale_id' in df.columns and not pd.api.types.is_integer_dtype(df['sale_id']):
-            errors.append("sale_id must be integer type")
-        if 'quantity' in df.columns and not pd.api.types.is_integer_dtype(df['quantity']):
-            errors.append("quantity must be integer type")
-            
-    elif table_name == 'products':
+    missing_columns = set(required_columns[table_name]) - set(df.columns)
+    if missing_columns:
+        errors.append(f"Missing required columns: {', '.join(missing_columns)}")
+        
+    # Validate data types
+    if table_name == 'products':
         if 'price_usd' in df.columns and not pd.api.types.is_float_dtype(df['price_usd']):
             errors.append("price_usd must be float type")
         if 'active' in df.columns and not pd.api.types.is_bool_dtype(df['active']):
             errors.append("active must be boolean type")
             
+    # Validate date columns
+    date_columns = {
+        'customers': ['registration_date'],
+        'sales': ['sale_date'],
+        'support_tickets': ['opened_at']
+    }
+    
+    if table_name in date_columns:
+        for col in date_columns[table_name]:
+            if col in df.columns:
+                try:
+                    pd.to_datetime(df[col])
+                except Exception as e:
+                    errors.append(f"{col} must be a valid date: {str(e)}")
+                    
     return len(errors) == 0, errors
 
-def validate_relationships(df: pd.DataFrame, 
-                         table_name: str, 
-                         customers_df: pd.DataFrame, 
-                         products_df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
+def validate_relationships(
+    df: pd.DataFrame,
+    table_name: str,
+    customers_df: pd.DataFrame,
+    products_df: pd.DataFrame
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
-    Validate relationships between tables and separate valid/invalid records.
+    Validate relationships between tables.
     
     Args:
         df: DataFrame to validate
         table_name: Name of the table being validated
-        customers_df: Customers DataFrame for relationship validation
-        products_df: Products DataFrame for relationship validation
+        customers_df: Customers reference DataFrame
+        products_df: Products reference DataFrame
         
     Returns:
         Tuple of (valid DataFrame, invalid DataFrame)
     """
-    valid_df = df.copy()
-    invalid_rows = []
+    if customers_df.empty or products_df.empty:
+        return pd.DataFrame(), df
+        
+    # Get valid IDs
+    valid_customer_ids = set(customers_df['customer_id'])
+    valid_product_ids = set(products_df['product_id'])
     
-    # Validate customer relationships
-    if 'customer_id' in df.columns and not customers_df.empty:
-        invalid_cust = df[~df['customer_id'].isin(customers_df['customer_id'])]
-        if not invalid_cust.empty:
-            invalid_cust = invalid_cust.copy()
-            invalid_cust['error_reason'] = invalid_cust['customer_id'].apply(
-                lambda x: f'Missing customer_id: {x}')
-            invalid_cust['ingestion_timestamp'] = pd.Timestamp.utcnow()
-            invalid_rows.append(invalid_cust)
-            valid_df = valid_df[valid_df['customer_id'].isin(customers_df['customer_id'])]
+    # Create masks for valid relationships
+    valid_customers = df['customer_id'].isin(valid_customer_ids)
+    valid_products = df['product_id'].isin(valid_product_ids)
     
-    # Validate product relationships
-    if 'product_id' in df.columns and not products_df.empty:
-        invalid_prod = valid_df[~valid_df['product_id'].isin(products_df['product_id'])]
-        if not invalid_prod.empty:
-            invalid_prod = invalid_prod.copy()
-            invalid_prod['error_reason'] = invalid_prod['product_id'].apply(
-                lambda x: f'Missing product_id: {x}')
-            invalid_prod['ingestion_timestamp'] = pd.Timestamp.utcnow()
-            invalid_rows.append(invalid_prod)
-            valid_df = valid_df[valid_df['product_id'].isin(products_df['product_id'])]
+    # Split into valid and invalid
+    valid_df = df[valid_customers & valid_products].copy()
+    invalid_df = df[~(valid_customers & valid_products)].copy()
     
-    invalid_df = pd.concat(invalid_rows, ignore_index=True) if invalid_rows else pd.DataFrame()
+    # Add validation reason to invalid records
+    if not invalid_df.empty:
+        invalid_df['validation_reason'] = ''
+        invalid_df.loc[~valid_customers, 'validation_reason'] = 'Invalid customer_id'
+        invalid_df.loc[~valid_products, 'validation_reason'] = 'Invalid product_id'
+        invalid_df.loc[~(valid_customers & valid_products), 'validation_reason'] = 'Invalid customer_id and product_id'
+        
     return valid_df, invalid_df 
