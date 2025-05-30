@@ -1,0 +1,37 @@
+# Cloud Build configuration for deploying the ingestion pipeline Cloud Function
+# This file is used by Cloud Build to automatically deploy your function when you push to GitHub
+
+steps:
+  # Deploy the Cloud Function
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'  # Official Google Cloud SDK image
+    entrypoint: gcloud
+    args:
+      - 'functions'
+      - 'deploy'
+      - '${_FUNCTION_NAME}'  # Function name - set this in your Cloud Build trigger
+      - '--runtime=python310'  # Python 3.10 runtime
+      - '--trigger-http'  # HTTP trigger
+      - '--entry-point=main'  # The function to execute
+      - '--source=.'  # Use current directory as source
+      - '--memory=512MB'  # Memory allocation
+      - '--timeout=540s'  # Maximum execution time (9 minutes)
+      - '--region=${_REGION}'  # Region - set this in your Cloud Build trigger
+      - '--service-account=${_SERVICE_ACCOUNT}'  # Service account email
+      - '--set-env-vars=PROJECT_ID=${PROJECT_ID}'  # Pass project ID as environment variable
+      - '--allow-unauthenticated'  # Allow public access (remove if you need authentication)
+
+# These variables should be set in your Cloud Build trigger
+substitutions:
+  _FUNCTION_NAME: 'challenge-ingestion'  # Change this to your preferred function name
+  _REGION: 'us-central1'  # Change this to your preferred region
+  _SERVICE_ACCOUNT: 'challenge-ingestion@${PROJECT_ID}.iam.gserviceaccount.com'  # Service account name
+
+# Cloud Build options
+options:
+  logging: CLOUD_LOGGING_ONLY  # Use Cloud Logging for build logs
+
+# Available variables:
+# ${PROJECT_ID} - Automatically set by Cloud Build to your GCP project ID
+# ${_FUNCTION_NAME} - Set in Cloud Build trigger
+# ${_REGION} - Set in Cloud Build trigger
+# ${_SERVICE_ACCOUNT} - Constructed from project ID and service account name 
