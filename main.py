@@ -3,7 +3,8 @@
 import pandas as pd
 import os
 import json
-from typing import Dict, Optional, Tuple, Any
+import numpy as np
+from typing import Dict, Optional, Tuple, Any, Union
 from flask import Request
 
 from utils import (
@@ -13,6 +14,30 @@ from utils import (
 from schemas import SCHEMAS
 from validation import validate_excel_file, validate_relationships
 from config import get_config
+
+def convert_to_python_types(obj: Any) -> Any:
+    """
+    Convert NumPy/Pandas types to Python native types for JSON serialization.
+    
+    Args:
+        obj: Object to convert
+        
+    Returns:
+        Object with native Python types
+    """
+    if isinstance(obj, (np.integer, np.int64)):
+        return int(obj)
+    elif isinstance(obj, (np.floating, np.float64)):
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, pd.Timestamp):
+        return obj.isoformat()
+    elif isinstance(obj, dict):
+        return {key: convert_to_python_types(value) for key, value in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return [convert_to_python_types(item) for item in obj]
+    return obj
 
 def main(request: Request) -> Tuple[str, int]:
     """
@@ -148,10 +173,12 @@ def main(request: Request) -> Tuple[str, int]:
                     valid_df = valid_df[valid_df['sale_id'] > max_sale_id]
                     if not valid_df.empty:
                         load_to_bigquery(valid_df, f'raw_{table}', SCHEMAS[table], dataset=dataset)
-                        update_metadata(f'raw_{table}', valid_df['sale_id'].max(), dataset)
+                        max_id = int(valid_df['sale_id'].max())  # Convert to Python int
+                        update_metadata(f'raw_{table}', max_id, dataset)
                 else:  # support_tickets
                     load_to_bigquery(valid_df, f'raw_{table}', SCHEMAS[table], dataset=dataset)
-                    update_metadata(f'raw_{table}', valid_df['ticket_id'].max(), dataset)
+                    max_id = int(valid_df['ticket_id'].max())  # Convert to Python int
+                    update_metadata(f'raw_{table}', max_id, dataset)
 
             if not invalid_df.empty:
                 load_to_bigquery(
@@ -162,12 +189,13 @@ def main(request: Request) -> Tuple[str, int]:
                 )
 
         add_to_log('Ingestion pipeline completed successfully')
-        return json.dumps({
+        response_data = {
             'status': 'success',
             'message': 'Ingestion complete',
             'tables_processed': list(dataframes.keys()),
             'logs': get_logs()
-        }), 200
+        }
+        return json.dumps(convert_to_python_types(response_data)), 200
 
     except Exception as e:
         error_msg = f'Pipeline failed: {str(e)}'
@@ -178,11 +206,12 @@ def main(request: Request) -> Tuple[str, int]:
             if 'dataframes' in locals():
                 for table, df in dataframes.items():
                     error_msg += f"\nColumns in {table}: {list(df.columns)}"
-        return json.dumps({
+        response_data = {
             'status': 'error',
             'message': error_msg,
             'logs': get_logs()
-        }), 500
+        }
+        return json.dumps(convert_to_python_types(response_data)), 500
 
 if __name__ == '__main__':
     # This is for local testing only
