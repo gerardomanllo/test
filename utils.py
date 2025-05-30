@@ -90,7 +90,7 @@ def load_to_bigquery(
     Args:
         df: DataFrame to load
         table_name: Name of the target table
-        schema: BigQuery schema
+        schema: BigQuery schema (list of dicts with name, field_type, and mode)
         write_disposition: Write disposition for the load job
         dataset: Target dataset
     """
@@ -99,8 +99,16 @@ def load_to_bigquery(
         
     try:
         table_id = f"{bq_client.project}.{dataset}.{table_name}"
+        # Convert schema dicts to SchemaField objects, mapping 'type' to 'field_type'
+        schema_fields = [
+            bigquery.SchemaField(
+                name=field['name'],
+                field_type=field['type'],  # Changed from type to field_type
+                mode=field['mode']
+            ) for field in schema
+        ]
         job_config = bigquery.LoadJobConfig(
-            schema=[bigquery.SchemaField(**field) for field in schema],
+            schema=schema_fields,
             write_disposition=write_disposition
         )
         
