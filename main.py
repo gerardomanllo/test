@@ -141,7 +141,6 @@ def main(request: Request) -> Tuple[str, int]:
                     'WRITE_TRUNCATE',
                     dataset
                 )
-                update_metadata(f'raw_{table}', dataset=dataset)
 
         # Handle sales separately for incremental loading
         if 'sales' in valid_dfs:

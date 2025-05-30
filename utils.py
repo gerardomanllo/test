@@ -127,13 +127,17 @@ def update_metadata(
 ) -> None:
     """
     Update ingestion metadata in the ingestion_metadata table.
-    Creates a new row if table doesn't exist, updates existing row if it does.
+    Only tracks metadata for raw_sales table.
     
     Args:
         table_name: Name of the table
         max_id: Maximum ID processed (for incremental tables)
         dataset: Dataset containing the table
     """
+    # Only track metadata for raw_sales
+    if table_name != 'raw_sales':
+        return
+        
     try:
         metadata_table_id = f"{bq_client.project}.{dataset}.ingestion_metadata"
         
@@ -162,15 +166,20 @@ def update_metadata(
 def get_max_id(table_name: str, id_column: str, dataset: str = 'raw_data') -> int:
     """
     Get the maximum ID from the ingestion_metadata table.
+    Only used for raw_sales table.
     
     Args:
-        table_name: Name of the table
+        table_name: Name of the table (should be raw_sales)
         id_column: Name of the ID column (not used, kept for compatibility)
         dataset: Dataset containing the table
         
     Returns:
         Maximum ID found, or 0 if no records exist
     """
+    # Only get max_id for raw_sales
+    if table_name != 'raw_sales':
+        return 0
+        
     try:
         query = f"""
         SELECT max_id
