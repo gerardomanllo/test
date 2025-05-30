@@ -24,7 +24,7 @@ steps:
 substitutions:
   _FUNCTION_NAME: 'challenge-ingestion'  # Change this to your preferred function name
   _REGION: 'us-central1'  # Change this to your preferred region
-  _SERVICE_ACCOUNT: 'challenge-ingestion@${PROJECT_ID}.iam.gserviceaccount.com'  # Service account name
+  _SERVICE_ACCOUNT: 'challenge@${PROJECT_ID}.iam.gserviceaccount.com'  # Service account name
 
 # Cloud Build options
 options:
