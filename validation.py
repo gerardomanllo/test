@@ -1,6 +1,7 @@
 """Input validation functions for the ingestion pipeline."""
 
 import pandas as pd
+import numpy as np
 from typing import Dict, List, Tuple
 from schemas import REQUIRED_COLUMNS
 from utils import add_to_log
@@ -18,17 +19,48 @@ def validate_excel_file(df: pd.DataFrame, table_name: str) -> Tuple[bool, List[s
     """
     errors = []
     
-    # Convert price_usd to float for products table
-    if table_name == 'products' and 'price_usd' in df.columns:
-        try:
-            df['price_usd'] = pd.to_numeric(df['price_usd'], errors='coerce')
-            # Log any rows where conversion failed
-            null_prices = df['price_usd'].isnull().sum()
-            if null_prices > 0:
-                add_to_log(f"Warning: {null_prices} rows in products have invalid price_usd values", 'WARNING')
-        except Exception as e:
-            errors.append(f"Failed to convert price_usd to float: {str(e)}")
-            return False, errors
+    # Handle products table specific conversions
+    if table_name == 'products':
+        # Convert price_usd to float
+        if 'price_usd' in df.columns:
+            try:
+                # First convert to numeric (this handles both string and integer inputs)
+                df['price_usd'] = pd.to_numeric(df['price_usd'], errors='coerce')
+                # Then convert to float
+                df['price_usd'] = df['price_usd'].astype(float)
+                # Log any rows where conversion failed
+                null_prices = df['price_usd'].isnull().sum()
+                if null_prices > 0:
+                    add_to_log(f"Warning: {null_prices} rows in products have invalid price_usd values", 'WARNING')
+            except Exception as e:
+                errors.append(f"Failed to convert price_usd to float: {str(e)}")
+                return False, errors
+                
+        # Convert active to boolean
+        if 'active' in df.columns:
+            try:
+                # Convert string TRUE/FALSE to boolean
+                df['active'] = df['active'].map({
+                    'TRUE': True,
+                    'FALSE': False,
+                    True: True,
+                    False: False,
+                    'true': True,
+                    'false': False,
+                    'True': True,
+                    'False': False,
+                    '1': True,
+                    '0': False,
+                    1: True,
+                    0: False
+                })
+                # Log any rows where conversion failed
+                null_active = df['active'].isnull().sum()
+                if null_active > 0:
+                    add_to_log(f"Warning: {null_active} rows in products have invalid active values", 'WARNING')
+            except Exception as e:
+                errors.append(f"Failed to convert active to boolean: {str(e)}")
+                return False, errors
     
     # Validate required columns
     required_columns = {
@@ -46,12 +78,12 @@ def validate_excel_file(df: pd.DataFrame, table_name: str) -> Tuple[bool, List[s
     if missing_columns:
         errors.append(f"Missing required columns: {', '.join(missing_columns)}")
         
-    # Validate data types
+    # Validate data types after conversion
     if table_name == 'products':
         if 'price_usd' in df.columns and not pd.api.types.is_float_dtype(df['price_usd']):
-            errors.append("price_usd must be float type")
+            errors.append("price_usd must be float type after conversion")
         if 'active' in df.columns and not pd.api.types.is_bool_dtype(df['active']):
-            errors.append("active must be boolean type")
+            errors.append("active must be boolean type after conversion")
             
     # Validate date columns
     date_columns = {
