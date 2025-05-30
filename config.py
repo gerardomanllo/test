@@ -1,12 +1,9 @@
 """Configuration management for the ingestion pipeline."""
 
 import os
-from google.cloud import secretmanager, logging
+from google.cloud import secretmanager
 from typing import Optional
-
-# Initialize logging client
-logging_client = logging.Client()
-log = logging_client.logger('bixlabs-ingestion')
+from utils import add_to_log, log_error
 
 def get_secret(project_id: str, secret_id: str, version_id: str = "latest") -> Optional[str]:
     """
@@ -23,13 +20,13 @@ def get_secret(project_id: str, secret_id: str, version_id: str = "latest") -> O
     try:
         client = secretmanager.SecretManagerServiceClient()
         name = f"projects/{project_id}/secrets/{secret_id}/versions/{version_id}"
-        log.log_text(f'Attempting to access secret: {secret_id}', severity='INFO')
+        add_to_log(f'Attempting to access secret: {secret_id}')
         response = client.access_secret_version(request={"name": name})
         value = response.payload.data.decode("UTF-8")
-        log.log_text(f'Successfully retrieved secret: {secret_id}', severity='INFO')
+        add_to_log(f'Successfully retrieved secret: {secret_id}')
         return value
     except Exception as e:
-        log.log_text(f"Error accessing secret {secret_id}: {str(e)}", severity='ERROR')
+        log_error('config', f"Error accessing secret {secret_id}: {str(e)}")
         return None
 
 def get_config():
@@ -42,24 +39,24 @@ def get_config():
     # Get project_id from environment variable
     project_id = os.environ.get('PROJECT_ID')
     if not project_id:
-        log.log_text('PROJECT_ID environment variable not set', severity='ERROR')
+        log_error('config', 'PROJECT_ID environment variable not set')
         raise ValueError("PROJECT_ID environment variable not set")
         
-    log.log_text(f'Using project_id: {project_id}', severity='INFO')
+    add_to_log(f'Using project_id: {project_id}')
         
     # Get other configuration from Secret Manager
     dataset = get_secret(project_id, "dataset") or "challenge"
     bucket = get_secret(project_id, "bucket") or "bixlabs-challenge-bucket"
     files = get_secret(project_id, "files")
     
-    log.log_text(f'Configuration retrieved - dataset: {dataset}, bucket: {bucket}', severity='INFO')
+    add_to_log(f'Configuration retrieved - dataset: {dataset}, bucket: {bucket}')
     
     if files:
         files = files.split(",")
-        log.log_text(f'Files from secret: {files}', severity='INFO')
+        add_to_log(f'Files from secret: {files}')
     else:
         files = ["sales.xlsx", "products.xlsx", "customers.xlsx", "support_tickets.xlsx"]
-        log.log_text(f'Using default files: {files}', severity='INFO')
+        add_to_log(f'Using default files: {files}')
         
     return {
         "project_id": project_id,

@@ -8,7 +8,7 @@ from flask import Request
 
 from utils import (
     bq_client, log_error, download_file, load_to_bigquery,
-    update_metadata, get_max_id
+    update_metadata, get_max_id, add_to_log, get_logs, clear_logs
 )
 from schemas import SCHEMAS
 from validation import validate_excel_file, validate_relationships
@@ -24,18 +24,27 @@ def main(request: Request) -> Tuple[str, int]:
     Returns:
         Tuple of (response message, HTTP status code)
     """
+    # Clear logs from previous runs
+    clear_logs()
+    
     # Verify request method
     if request.method != 'POST':
-        return 'Method not allowed', 405
+        add_to_log('Invalid request method', 'ERROR')
+        return json.dumps({
+            'status': 'error',
+            'message': 'Method not allowed',
+            'logs': get_logs()
+        }), 405
         
     try:
         # Get configuration from Secret Manager
+        add_to_log('Starting ingestion pipeline')
         config = get_config()
         dataset = config['dataset']
         bucket = config['bucket']
         files = config['files']
         
-        log_error('debug', f"Files to process: {files}")
+        add_to_log(f"Files to process: {files}")
         
         # Download and read files
         dataframes = {}
@@ -43,9 +52,10 @@ def main(request: Request) -> Tuple[str, int]:
             local_file = download_file(bucket, file_name)
             if local_file:
                 table_name = file_name.replace('.xlsx', '')
+                add_to_log(f"Reading Excel file: {file_name}")
                 df = pd.read_excel(local_file, engine='openpyxl')
                 
-                log_error('debug', f"Columns in {table_name}: {list(df.columns)}")
+                add_to_log(f"Columns in {table_name}: {list(df.columns)}")
                 
                 # Validate Excel file
                 is_valid, errors = validate_excel_file(df, table_name)
@@ -56,29 +66,33 @@ def main(request: Request) -> Tuple[str, int]:
                 # Rename columns for relationships
                 if table_name == 'sales':
                     df = df.rename(columns={'customer': 'customer_id', 'product': 'product_id'})
-                    log_error('debug', f"After rename, columns in sales: {list(df.columns)}")
+                    add_to_log(f"After rename, columns in sales: {list(df.columns)}")
                 elif table_name == 'support_tickets':
                     df = df.rename(columns={'customer': 'customer_id', 'product': 'product_id'})
-                    log_error('debug', f"After rename, columns in support_tickets: {list(df.columns)}")
+                    add_to_log(f"After rename, columns in support_tickets: {list(df.columns)}")
                     
                 dataframes[table_name] = df
                 os.remove(local_file)
             else:
-                log_error('debug', f"Failed to download {file_name}")
+                add_to_log(f"Failed to process {file_name}", 'ERROR')
                 continue
 
         if not dataframes:
             log_error('all', 'No files successfully downloaded and validated')
-            return json.dumps({'status': 'error', 'message': 'No files processed'}), 200
+            return json.dumps({
+                'status': 'error',
+                'message': 'No files processed',
+                'logs': get_logs()
+            }), 200
 
-        log_error('debug', f"Available tables after download: {list(dataframes.keys())}")
+        add_to_log(f"Available tables after download: {list(dataframes.keys())}")
 
         # Get reference data for relationship validation
         customers = dataframes.get('customers', pd.DataFrame())
         products = dataframes.get('products', pd.DataFrame())
 
-        log_error('debug', f"Customers columns: {list(customers.columns) if not customers.empty else 'empty'}")
-        log_error('debug', f"Products columns: {list(products.columns) if not products.empty else 'empty'}")
+        add_to_log(f"Customers columns: {list(customers.columns) if not customers.empty else 'empty'}")
+        add_to_log(f"Products columns: {list(products.columns) if not products.empty else 'empty'}")
 
         # Validate relationships and prepare data for loading
         valid_dfs = {}
@@ -92,7 +106,7 @@ def main(request: Request) -> Tuple[str, int]:
         # Then handle tables with relationships (sales and support_tickets)
         for table in ['sales', 'support_tickets']:
             if table not in dataframes:
-                log_error('debug', f"Table {table} not found in dataframes")
+                add_to_log(f"Table {table} not found in dataframes", 'WARNING')
                 continue
                 
             # Only validate if we have both customers and products data
@@ -100,8 +114,8 @@ def main(request: Request) -> Tuple[str, int]:
                 log_error(table, "Cannot validate relationships: missing customers or products data")
                 continue
                 
-            log_error('debug', f"Validating relationships for {table}")
-            log_error('debug', f"Columns in {table} before validation: {list(dataframes[table].columns)}")
+            add_to_log(f"Validating relationships for {table}")
+            add_to_log(f"Columns in {table} before validation: {list(dataframes[table].columns)}")
             
             valid_df, invalid_df = validate_relationships(
                 dataframes[table], table, customers, products
@@ -147,10 +161,12 @@ def main(request: Request) -> Tuple[str, int]:
                     dataset=dataset
                 )
 
+        add_to_log('Ingestion pipeline completed successfully')
         return json.dumps({
             'status': 'success',
             'message': 'Ingestion complete',
-            'tables_processed': list(dataframes.keys())
+            'tables_processed': list(dataframes.keys()),
+            'logs': get_logs()
         }), 200
 
     except Exception as e:
@@ -164,7 +180,8 @@ def main(request: Request) -> Tuple[str, int]:
                     error_msg += f"\nColumns in {table}: {list(df.columns)}"
         return json.dumps({
             'status': 'error',
-            'message': error_msg
+            'message': error_msg,
+            'logs': get_logs()
         }), 500
 
 if __name__ == '__main__':
